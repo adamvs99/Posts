@@ -100,7 +100,6 @@ Changes:
 //setWriteInvocations(true);
 
 var g_description = "Tormach 15LSlantPRO-1.1.29";
-description = "Tormach 15LSlantPRO-1.1.29";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2020 by Autodesk, Inc. ; (C) 2015-2016 Tormach, Inc., (C) 2015-2020 Adam Silver";
@@ -1383,6 +1382,7 @@ function _getToolCT( sectionId ) {
 function _getTrueX( _x ) {
     var ti = g_tooling.getToolInfo(  getCurrentSectionId( ) );
     
+// debugOut("_getTrueX: ti.toolCuttingDir:" + ti.toolCuttingDir === toolType.XPLUS ? "toolType.XPLUS" : "toolType.XMINUS")
     if ( ti.toolCuttingDir === toolType.XPLUS )
         return _x;
     
@@ -1905,6 +1905,13 @@ function onCyclePoint(x, y, z) {
             var g76_z = backFromFront ? pos.z : z;
 //debugOut( "onCyclePoint: backFromFront = " + backFromFront + " z Value: " + z + " pos.z: " + pos.z );            
 //debugOut( "onCyclePoint: currentSection.getFinalPosition = " + currentSection.getFinalPosition( ) + " currentSection.getInitialPosition: " + currentSection.getInitialPosition( ));            
+            if ( ! backFromFront ) {
+                writeBlock( writeX( cycle.retract ));
+                var surfaceZHigh = getParameter( "operation:surfaceZHigh" );
+                var stockOffsetFront = getParameter("operation:stockOffsetFront");
+                writeBlock( zOutput.format( surfaceZHigh + stockOffsetFront ) );
+
+            }
             if ( pos ) {
                 writeBlock( writeX( pos.x ) );
                 backFromFront ? writeBlock( zOutput.format( z ) ) : writeBlock( zOutput.format( pos.z ) );
@@ -1916,35 +1923,33 @@ function onCyclePoint(x, y, z) {
             var external = hasParameter( "operation:turningMode" ) && getParameter( "operation:turningMode" ) === "outer";            
             var r = -cycle.incrementalX; // positive if taper goes down - delta radius
             var threadsPerInch = 1.0/cycle.pitch; // per mm for metric
-            var p_value = 1/threadsPerInch;
+            var p_value = cycle.pitch;
             var d_value = Math.abs(cycle.incrementalX)
+            var tanXZ = d_value / Math.abs(cycle.incrementalZ)
+            var threadCrestRadius = getParameter("operation:outerRadius_value")
+            var zSurfaceLength = Math.abs(getParameter("operation:surfaceZHigh") - getParameter("operation:surfaceZLow"))
             var stock_offset_front = getParameter("operation:stockOffsetFront")
 // debugOut( "onCyclePoint: cycle.incrementalX = " + cycle.incrementalX);            
 // debugOut( "onCyclePoint: stock_offset_front = " + stock_offset_front);            
             
-            var driveLine = cycle.retract;  
-            var threadCrest;
+            var driveLineOffset = 0.0;  
             if ( external ) {
-                if ( hasParameter( "operation:outerRadius_value" ) )
-                    threadCrest = getParameter("operation:outerRadius_value");
-                else if ( hasParameter( "operation:top" ) )
-                    threadCrest = getParameter( "operation:top" );
                 if ( getParameter("operation:tool_turret") == 0 )
                     d_value = d_value == 0.0 ? d_value : -d_value;
+                driveLineOffset = getParameter("operation:outerClearance_offset")
             }
             else {
-                if ( hasParameter( "operation:innerRadius_value" ) )
-                    threadCrest = getParameter("operation:innerRadius_value");
-                else if ( hasParameter( "operation:top" ) )
-                    threadCrest = getParameter( "operation:top" );
-                if ( getParameter("operation:tool_turret") != 0 )
+                if ( getParameter("operation:tool_turret") > 0 )
                     d_value = d_value == 0.0 ? d_value : -d_value;
+                driveLineOffset = getParameter("operation:innerClearance_offset")
+                threadCrestRadius = getParameter("operation:innerRadius_value")
             }
+            var threadCrest = (tanXZ*zSurfaceLength + threadCrestRadius)*2
             var threadDepth = getParameter("operation:threadDepth");
             var numPasses = getParameter("operation:numberOfStepdowns");
-            var iVal = ( driveLine - threadCrest ) * 2;
+            var iVal = driveLineOffset * 2;
             var rootLine = ( threadCrest - threadDepth ) * 2;
-            var jVal = _calcThreadPasses( iVal,
+            var jVal = _calcThreadPasses( driveLineOffset,//iVal,
                                          threadCrest * 2,
                                          rootLine,
                                          numPasses);
@@ -1952,7 +1957,7 @@ function onCyclePoint(x, y, z) {
             var qVal = getParameter("operation:infeedAngle");
             var hVal = getParameter("operation:nullPass");
             
-// debugOut( "p= " + p_value, "driveline= " + driveLine, "threadCrest= " + threadCrest, "threadDepth= " + threadDepth );            
+//debugOut( "p= " + p_value, "driveline= " + driveLineOffset, "threadCrest= " + threadCrest, "threadDepth= " + threadDepth );            
 
             writeBlock( gMotionModal.format(76),
                         pOutput.format( p_value ),
